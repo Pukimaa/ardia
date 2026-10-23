@@ -17,6 +17,18 @@ Tabs are real Chrome tabs, composited by Chrome's own Viz like on the Mac; only 
   native view manager the packages ask for (`ArdiaSymbol`, `ArdiaCEF`, `ArdiaWindowBackdrop`…) resolves to a
   web component registered in `apps/browser/linux/views`. The app's own source is unchanged except where Linux
   must differ (window controls, Ctrl for ⌘, the app menu), behind `isLinux` from `@ardia/shell`.
+- **One app realm, many windows.** On the Mac every window is a root view of the one JS runtime (`AppRegistry`
+  component `main` with `{windowId}`), so the store is shared. Linux keeps that: one **host page**
+  (`ardia://shell/index.html`) runs the app's JS in a WebContents with no widget, kept visible and awake
+  (`WebContents::IncrementCapturerCount(gfx::Size(), /*stay_hidden=*/false, /*stay_awake=*/true)`) so its timers
+  and animation frames never throttle. Each window's shell view is a same-origin popup of the host page:
+  when the engine opens a window (`ArdiaShell.openWindow`, launch, reopen, the CLI) it asks the host page with
+  `window.__ardiaNativeOpenWindowDocument(windowId)`, the runtime calls
+  `window.open("ardia://shell/window.html#<windowId>", "ardia-window-<windowId>")`, the host's
+  `WebContentsDelegate::AddNewContents` hands that WebContents to the window by its frame name, and the runtime
+  renders `main` with `{windowId}` into the popup's document (`AppRegistry.runApplication` with a `rootTag` in that
+  document; react-native-web injects its styles into the root's own document). Closing a window closes its
+  document only; the host page lives until quit.
 - **The bridge.** The shell page talks to the engine through `window.ardiaNative` (`apps/browser/linux/runtime/bridge.ts`).
   Calls are JSON over the `ardia-native://` scheme the browser process serves for the shell's origin only:
   `POST ardia-native://call/<Module>/<method>` with a JSON array of arguments answers `{"ok": value}` or

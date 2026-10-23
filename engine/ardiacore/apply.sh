@@ -4,12 +4,26 @@ here=$(cd "$(dirname "$0")" && pwd)
 src=${CHROMIUM_SRC:-$HOME/chromium-build/chromium_git/chromium/src}
 
 mode=apply
-[[ "${1:-}" == --check ]] && mode=check
+target=${TARGET_OS:-mac}
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check) mode=check ;;
+    --target-os=*) target=${1#--target-os=} ;;
+    --target-os) target=${2:-}; shift ;;
+    *) echo "usage: apply.sh [--check] [--target-os=mac|linux]" >&2; exit 2 ;;
+  esac
+  shift
+done
+case "$target" in
+  mac | macos | darwin) target=mac ;;
+  linux) ;;
+  *) echo "apply.sh: unknown target OS '$target' (mac or linux)" >&2; exit 2 ;;
+esac
 drift=0
 
 read -r -d '' hooklib <<'PY' || true
 import sys
-mode, path, name = sys.argv[1:4]
+mode, path, name, target = sys.argv[1:5]
 s = open(path).read()
 HOOKS = '#include "ardia/core/ac_hooks.h"  // nogncheck\n'
 CONTENT_HOOKS = '#include "ardia/core/ac_content_hooks.h"  // nogncheck\n'
@@ -46,11 +60,27 @@ PY
 
 hook() {
   local status=0
-  python3 -c "$hooklib"$'\n'"$(cat)" "$mode" "$1" "$2" || status=$?
+  python3 -c "$hooklib"$'\n'"$(cat)" "$mode" "$1" "$2" "$target" || status=$?
   if [[ $status -ne 0 ]]; then
     [[ $mode == check ]] && { drift=1; return 0; }
     exit "$status"
   fi
+}
+
+mac_hook() {
+  if [[ $target != mac ]]; then
+    cat >/dev/null
+    return 0
+  fi
+  hook "$@"
+}
+
+linux_hook() {
+  if [[ $target != linux ]]; then
+    cat >/dev/null
+    return 0
+  fi
+  hook "$@"
 }
 
 if [[ $mode == check ]]; then
@@ -60,7 +90,7 @@ else
   rsync -r --delete --checksum "$here/src/ardia/" "$src/ardia/"
 fi
 
-hook "$src/chrome/BUILD.gn" "//chrome:chrome_dll" <<'PY'
+mac_hook "$src/chrome/BUILD.gn" "//chrome:chrome_dll" <<'PY'
 line = '      "//ardia/core",  # Ardia: ArdiaCore (engine/ardiacore)\n'
 def edit(s):
     mac = s.index('target(_dll_target_type, "chrome_dll")')
@@ -82,6 +112,8 @@ inc_old = '#if BUILDFLAG(IS_MAC)\n#include "chrome/app/chrome_main_mac.h"\n'
 inc = '#include "ardia/core/ac_main_delegate.h"  // nogncheck\n'
 def edit(s):
     assert s.count(old) == 1 and s.count(inc_old) == 1
+    if target == "linux":
+        return s.replace(old, new).replace(inc_old, inc + inc_old)
     return s.replace(old, new).replace(inc_old, inc_old + inc)
 hook(["  ardiacore::ACMainDelegate chrome_main_delegate(\n", inc], edit)
 PY
@@ -336,7 +368,7 @@ def edit(s):
 hook(["  // Ardia: ArdiaCore opens its own windows and runs the main loop itself.\n"], edit, HOOKS)
 PY
 
-hook "$src/chrome/browser/chrome_browser_main_mac.mm" "ChromeBrowserMainPartsMac (embedder)" <<'PY'
+mac_hook "$src/chrome/browser/chrome_browser_main_mac.mm" "ChromeBrowserMainPartsMac (embedder)" <<'PY'
 start = "  // Create the app delegate by requesting the shared AppController.\n"
 end = "  [app_controller mainMenuCreated];\n"
 old = "  [AppController.sharedController didEndMainMessageLoop];\n"
@@ -1104,7 +1136,7 @@ hook(["bool g_ardia_skip_cpu_health_sampling = false;\n",
       "      g_ardia_skip_cpu_health_sampling ? nullptr\n"], edit, HOOKS)
 PY
 
-hook "$src/components/memory_pressure/system_memory_pressure_evaluator_mac.cc" "the disk space check's relaxed period" <<'PY'
+mac_hook "$src/components/memory_pressure/system_memory_pressure_evaluator_mac.cc" "the disk space check's relaxed period" <<'PY'
 at = "namespace memory_pressure::mac {\n"
 decl = """int g_ardia_disk_space_check_seconds = 0;
 
@@ -1394,7 +1426,7 @@ hook(["  ArdiaSetHybridUiShown(this, false);\n",
       "    ArdiaSetHybridUiShown(this, step_ == Step::kCableV2QRCode ||\n"], edit, CONTENT_HOOKS)
 PY
 
-hook "$src/device/bluetooth/bluetooth_low_energy_adapter_apple.h" "Bluetooth LE state updates reach the Mac adapter" <<'PY'
+mac_hook "$src/device/bluetooth/bluetooth_low_energy_adapter_apple.h" "Bluetooth LE state updates reach the Mac adapter" <<'PY'
 old = """  virtual void TriggerSystemPermissionPrompt() = 0;
 """
 new = """  virtual void TriggerSystemPermissionPrompt() = 0;
@@ -1406,7 +1438,7 @@ def edit(s):
 hook(["  virtual void OnLowEnergyCentralManagerStateUpdated() {}\n"], edit)
 PY
 
-hook "$src/device/bluetooth/bluetooth_low_energy_adapter_apple.mm" "Bluetooth LE state updates reach the Mac adapter" <<'PY'
+mac_hook "$src/device/bluetooth/bluetooth_low_energy_adapter_apple.mm" "Bluetooth LE state updates reach the Mac adapter" <<'PY'
 old = """        device_mac->DidDisconnectPeripheral(nullptr);
       }
     }
@@ -1426,7 +1458,7 @@ def edit(s):
 hook(["  OnLowEnergyCentralManagerStateUpdated();\n}\n"], edit)
 PY
 
-hook "$src/device/bluetooth/bluetooth_adapter_mac.h" "the Bluetooth adapter polls on demand" <<'PY'
+mac_hook "$src/device/bluetooth/bluetooth_adapter_mac.h" "the Bluetooth adapter polls on demand" <<'PY'
 old = """  void PollAdapter();
   void OnBackgroundPollComplete(AdapterState state);
 """
@@ -1445,7 +1477,7 @@ def edit(s):
 hook(["  void PollAdapterOnDemand();\n", "  bool poll_dirty_ = false;\n", "  base::TimeTicks last_poll_completed_;\n"], edit)
 PY
 
-hook "$src/device/bluetooth/bluetooth_adapter_mac.mm" "the Bluetooth adapter polls on demand" <<'PY'
+mac_hook "$src/device/bluetooth/bluetooth_adapter_mac.mm" "the Bluetooth adapter polls on demand" <<'PY'
 at = "namespace device {\n"
 decl = """bool g_ardia_bluetooth_poll_on_demand = false;
 
@@ -1628,6 +1660,81 @@ def edit(s):
     return s[:i] + decl + s[i:].replace(old, new)
 hook(["bool g_ardia_scripts_wait_at_response = false;\n",
       "  ThrottleCheckResult WillProcessResponse() override {\n    if (should_defer_ && g_ardia_scripts_wait_at_response) {\n"], edit, CONTENT_HOOKS)
+PY
+
+linux_hook "$src/chrome/BUILD.gn" "//chrome:chrome_initial" <<'PY'
+line = '        "//ardia/core",  # Ardia: ArdiaCore (engine/ardiacore)\n'
+def edit(s):
+    exe = s.index('executable("chrome_initial")')
+    block = s.index("    if (is_linux || is_chromeos) {\n", exe)
+    anchor = '        "//content/public/app",\n'
+    at = s.index(anchor, block) + len(anchor)
+    return s[:at] + line + s[at:]
+hook([line], edit)
+PY
+
+linux_hook "$src/chrome/app/chrome_exe_main_aura.cc" "the Linux entry point" <<'PY'
+old = """extern "C" {
+int ChromeMain(int argc, const char** argv);
+}
+
+int main(int argc, const char** argv) {
+  return ChromeMain(argc, argv);
+}
+"""
+new = """extern "C" {
+int ChromeMain(int argc, const char** argv);
+// Ardia: ArdiaCore's Linux entry point (engine/ardiacore), which runs ChromeMain.
+int ArdiaLinuxMain(int argc, const char** argv);
+}
+
+int main(int argc, const char** argv) {
+  return ArdiaLinuxMain(argc, argv);
+}
+"""
+def edit(s):
+    assert s.count(old) == 1
+    return s.replace(old, new)
+hook(["int ArdiaLinuxMain(int argc, const char** argv);\n",
+      "  return ArdiaLinuxMain(argc, argv);\n"], edit)
+PY
+
+linux_hook "$src/chrome/common/chrome_content_client.cc" "the shell's schemes" <<'PY'
+old = """void ChromeContentClient::AddAdditionalSchemes(Schemes* schemes) {
+  for (auto* standard_scheme : kChromeStandardURLSchemes)
+    schemes->standard_schemes.push_back(standard_scheme);
+"""
+new = old + """
+  // Ardia: ArdiaCore's shell page (ardia://shell) and its native bridge
+  // (ardia-native:) on Linux (engine/ardiacore/src/ardia/core/linux).
+  schemes->standard_schemes.push_back("ardia");
+  schemes->secure_schemes.push_back("ardia");
+  schemes->cors_enabled_schemes.push_back("ardia");
+  schemes->secure_schemes.push_back("ardia-native");
+  schemes->cors_enabled_schemes.push_back("ardia-native");
+"""
+def edit(s):
+    assert s.count(old) == 1
+    return s.replace(old, new)
+hook(["  schemes->standard_schemes.push_back(\"ardia\");\n",
+      "  schemes->secure_schemes.push_back(\"ardia-native\");\n"], edit)
+PY
+
+linux_hook "$src/chrome/renderer/chrome_content_renderer_client.cc" "the shell's fetches" <<'PY'
+old = """  WebString native_scheme(WebString::FromAscii(chrome::kChromeNativeScheme));
+  WebSecurityPolicy::RegisterURLSchemeAsDisplayIsolated(native_scheme);
+"""
+new = old + """
+  // Ardia: ArdiaCore's shell page fetches its files and native calls on Linux.
+  WebSecurityPolicy::RegisterURLSchemeAsSupportingFetchAPI(
+      WebString::FromAscii("ardia"));
+  WebSecurityPolicy::RegisterURLSchemeAsSupportingFetchAPI(
+      WebString::FromAscii("ardia-native"));
+"""
+def edit(s):
+    assert s.count(old) == 1
+    return s.replace(old, new)
+hook(["      WebString::FromAscii(\"ardia-native\"));\n"], edit)
 PY
 
 if [[ $mode == check ]]; then

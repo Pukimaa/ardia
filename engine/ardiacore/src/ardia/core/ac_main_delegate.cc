@@ -24,6 +24,7 @@
 #include "base/strings/string_util.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_impl.h"
 #include "chrome/browser/chrome_browser_main.h"
@@ -45,7 +46,9 @@
 #include "third_party/blink/public/common/switches.h"
 #include "content/public/common/result_codes.h"
 #include "services/cert_verifier/public/mojom/cert_verifier_service_factory.mojom.h"
+#if BUILDFLAG(IS_MAC)
 #include "ardia/core/ac_video_upscaler.h"
+#endif
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "ardia/core/ac_content_hooks.h"
 #include "ardia/core/ac_hooks.h"
@@ -58,6 +61,9 @@
 #include "content/public/browser/web_contents_view_delegate.h"
 #include "ardia/core/renderer/ac_content_renderer_client.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
+#if BUILDFLAG(IS_LINUX)
+#include "ardia/core/linux/ac_linux_scheme.h"
+#endif
 
 namespace ardiacore {
 
@@ -132,9 +138,15 @@ std::string EnvironmentThatOpensTheProfile(base::Environment& env) {
 
 void KeepRealProfileClosed(base::CommandLine* command_line,
                            std::string_view stage) {
+#if BUILDFLAG(IS_MAC)
   const bool mock_keychain =
       command_line->HasSwitch(os_crypt::switches::kUseMockKeychain) &&
       !command_line->HasSwitch("ardia-apply-profile-gate");
+#else
+  const bool mock_keychain =
+      command_line->GetSwitchValueASCII("password-store") == "basic" &&
+      !command_line->HasSwitch("ardia-apply-profile-gate");
+#endif
   std::unique_ptr<base::Environment> env = base::Environment::Create();
   if (command_line->HasSwitch("ardia-show-profile-gate")) {
     base::CommandLine closed(*command_line);
@@ -249,6 +261,31 @@ class ACContentBrowserClient : public ChromeContentBrowserClient {
     MaybeAddNavigationHoldThrottle(registry);
     ardia::AddScriptsPagesThrottle(registry);
   }
+#if BUILDFLAG(IS_LINUX)
+  mojo::PendingRemote<network::mojom::URLLoaderFactory>
+  CreateNonNetworkNavigationURLLoaderFactory(
+      const std::string& scheme,
+      content::FrameTreeNodeId frame_tree_node_id) override {
+    if (auto shell = ardia::linux_host::CreateShellNavigationURLLoaderFactory(
+            scheme, frame_tree_node_id)) {
+      return shell;
+    }
+    return ChromeContentBrowserClient::CreateNonNetworkNavigationURLLoaderFactory(
+        scheme, frame_tree_node_id);
+  }
+  void RegisterNonNetworkSubresourceURLLoaderFactories(
+      int render_process_id,
+      int render_frame_id,
+      const std::optional<url::Origin>& request_initiator_origin,
+      NonNetworkURLLoaderFactoryMap* factories) override {
+    ChromeContentBrowserClient::RegisterNonNetworkSubresourceURLLoaderFactories(
+        render_process_id, render_frame_id, request_initiator_origin,
+        factories);
+    ardia::linux_host::RegisterShellSubresourceURLLoaderFactories(
+        render_process_id, render_frame_id, request_initiator_origin,
+        factories);
+  }
+#endif
   std::optional<base::TimeDelta> GetSpareRendererDelayForSiteURL(
       const GURL& site_url) override {
     std::optional<base::TimeDelta> delay =
@@ -415,9 +452,11 @@ void ACMainDelegate::PreSandboxStartup() {
     component_updater::RegisterPathProvider(chrome::DIR_COMPONENTS,
                                             chrome::DIR_USER_DATA);
   }
+#if BUILDFLAG(IS_MAC)
   if (process_type == switches::kGpuProcess) {
     g_ardia_create_video_upscaler = &ardiacore::CreateVideoUpscaler;
   }
+#endif
   if (process_type.empty()) {
     InstallAppOverrides();
     InstallChromeHooks();

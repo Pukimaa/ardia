@@ -1,0 +1,7 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["**/*.ts", "**/*.tsx", "../runtime/react-native-web.d.ts", "../../src/react-native-macos.d.ts"]
+}

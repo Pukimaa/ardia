@@ -9,7 +9,10 @@
     "pods": "cd macos && pod install",
     "build": "xcodebuild -workspace macos/Ardia.xcworkspace -scheme Ardia-macOS -derivedDataPath build -destination 'platform=macOS,arch=arm64' -quiet -configuration Release",
     "typecheck": "tsc -p .",
-    "test": "node --no-warnings --import ./src/test-loader.mjs --test \"src/**/*.test.mjs\""
+    "test": "node --no-warnings --import ./src/test-loader.mjs --test \"src/**/*.test.mjs\"",
+    "linux:ui": "node linux/scripts/build-ui.mjs",
+    "linux:dev": "node linux/scripts/build-ui.mjs --dev",
+    "linux:e2e": "playwright test -c linux/playwright.config.ts"
   },
   "dependencies": {
     "@ardia/core": "workspace:*",
@@ -27,6 +30,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@playwright/test": "1.56.1",
     "@react-native-community/cli": "^20.0.0",
     "@react-native-community/cli-platform-apple": "^20.0.0",
     "@react-native-community/cli-platform-ios": "^20.0.0",
@@ -34,6 +38,9 @@
     "@react-native/metro-config": "0.81.6",
     "@types/react": "~19.1.10",
     "babel-preset-expo": "~54.0.0",
+    "esbuild": "0.28.2",
+    "react-dom": "19.1.4",
+    "react-native-web": "0.21.4",
     "typescript": "~5.9.2"
   }
 }

@@ -1,0 +1,11 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "paths": {
+      "react-native": ["../../../node_modules/react-native-macos"]
+    }
+  },
+  "include": ["runtime", "entry.tsx", "playwright.config.ts", "../src/react-native-macos.d.ts"]
+}

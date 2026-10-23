@@ -1,0 +1,32 @@
+declare module "react-native-web" {
+  type Loose = any;
+  export const AccessibilityInfo: Loose;
+  export const ActivityIndicator: Loose;
+  export const Alert: Loose;
+  export const Animated: Loose;
+  export const AppRegistry: Loose;
+  export const AppState: Loose;
+  export const Appearance: Loose;
+  export const Clipboard: Loose;
+  export const Dimensions: Loose;
+  export const Easing: Loose;
+  export const FlatList: Loose;
+  export const I18nManager: Loose;
+  export const Image: Loose;
+  export const Keyboard: Loose;
+  export const Linking: Loose;
+  export const LogBox: Loose;
+  export const NativeModules: Loose;
+  export const PanResponder: Loose;
+  export const PixelRatio: Loose;
+  export const Platform: Loose;
+  export const Pressable: Loose;
+  export const ScrollView: Loose;
+  export const StyleSheet: Loose;
+  export const Text: Loose;
+  export const TextInput: Loose;
+  export const UIManager: Loose;
+  export const View: Loose;
+  export const useColorScheme: Loose;
+  export const useWindowDimensions: Loose;
+}
